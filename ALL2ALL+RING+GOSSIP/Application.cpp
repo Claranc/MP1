@@ -25,6 +25,7 @@ void handler(int sig) {
  * DESCRIPTION: main function. Start from here
  **********************************/
 int main(int argc, char *argv[]) {
+	srand ( unsigned ( time(NULL) ) );
 	//signal(SIGSEGV, handler);
 	if ( argc != ARGS_COUNT ) {
 		cout<<"Configuration (i.e., *.conf) file File Required"<<endl;

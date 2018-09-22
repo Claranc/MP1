@@ -8,6 +8,13 @@
 #ifndef _MP1NODE_H_
 #define _MP1NODE_H_
 
+/*
+**保留GOSSIP这一行代码则使用GOSSIP协议，保留RING这一行则为RING协议，
+**两行都注释掉则使用ALL2ALL（不要把两行都保留，谢谢，防御式编程，，，不存在的）
+**/
+//#define GOSSIP
+//#define RING
+
 #include "stdincludes.h"
 #include "Log.h"
 #include "Params.h"
@@ -31,7 +38,9 @@
 enum MsgTypes{
     JOINREQ,
     JOINREP,
-    HEARTBEAT
+    HEARTBEAT,
+	DOWN,
+	UP
 };
 
 /**
@@ -75,7 +84,11 @@ public:
 	Address getJoinAddress();
 	void initMemberListTable(Member *memberNode);
 	void printAddress(Address *addr);
+	#ifdef GOSSIP
+	vector<int> randsend(int num); //此函数GOSSIP专用
+	#endif
 	virtual ~MP1Node();
+	void savetoMemberlist(int id, short port, long timestamp);
 };
 
 #endif /* _MP1NODE_H_ */

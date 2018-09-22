@@ -7,15 +7,17 @@
 
 #include "MP1Node.h"
 
+//设置GOSSIP协议中给GOSSIP_NUM个随机节点发送消息的值
 #ifdef GOSSIP
 #define GPSSIP_NUM 1
 #endif
 
+//设置RING协议中给后RING_NUM个节点发送消息的值
 #ifdef RING
 #define RING_NUM 6
 #endif
 
-//添加节点信息
+//添加节点信息的专用函数
 void MP1Node::savetoMemberlist(int id, short port, long timestamp = 0) {
     if(!timestamp) {
         timestamp = par->getcurrtime();

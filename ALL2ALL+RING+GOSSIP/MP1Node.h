@@ -84,11 +84,11 @@ public:
 	Address getJoinAddress();
 	void initMemberListTable(Member *memberNode);
 	void printAddress(Address *addr);
+	virtual ~MP1Node();
+	void savetoMemberlist(int id, short port, long timestamp);
 	#ifdef GOSSIP
 	vector<int> randsend(int num); //此函数GOSSIP专用
 	#endif
-	virtual ~MP1Node();
-	void savetoMemberlist(int id, short port, long timestamp);
 };
 
 #endif /* _MP1NODE_H_ */

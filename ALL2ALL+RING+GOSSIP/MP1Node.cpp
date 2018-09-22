@@ -31,8 +31,7 @@ void MP1Node::savetoMemberlist(int id, short port, long timestamp = 0) {
         memcpy(&node_addr.addr[0], &id, sizeof(int));
         memcpy(&node_addr.addr[4], &port, sizeof(short));
         log->logNodeAdd(&memberNode->addr, &node_addr);
-    }
-    
+    } 
 }
 
 #ifdef GOSSIP

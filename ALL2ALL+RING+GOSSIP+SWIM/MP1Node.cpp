@@ -618,7 +618,7 @@ void MP1Node::nodeLoopOps() {
             short a = 0;
             memcpy(&node_addr.addr[4], &a, sizeof(short));
             for(vector<MemberListEntry>::iterator it2 = memberNode->memberList.end() -1; it2 != memberNode->memberList.begin(); it2--) {
-                //加上par->getcurrtime() - it2->timestamp > TREMOVE是担心判断频率过快带来不稳定
+                //加上par->getcurrtime()-it2->timestamp > TREMOVE是担心判断频率过快带来不稳定
                 if(it->first == it2->id && par->getcurrtime() - it2->timestamp > TREMOVE) {
                     memberNode->memberList.erase(it2);
                     log->logNodeRemove(&memberNode->addr, &node_addr);

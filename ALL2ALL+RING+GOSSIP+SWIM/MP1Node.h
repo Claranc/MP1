@@ -37,9 +37,9 @@
  * Message Types
  */
 enum MsgTypes{
-    JOINREQ, //新节点向老大发送消息
-    JOINREP, //老大向新节点回复消息
-    HEARTBEAT, //普通心跳
+	JOINREQ, //新节点向老大发送消息
+	JOINREP, //老大向新节点回复消息
+	HEARTBEAT, //普通心跳
 	DOWN,
 	UP,
 	#ifdef SWIM

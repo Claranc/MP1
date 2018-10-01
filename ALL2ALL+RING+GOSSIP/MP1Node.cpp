@@ -17,6 +17,11 @@
 #define RING_NUM 6
 #endif
 
+//设置SWIM协议中挑选SWIM_NUM个节点测试
+#ifdef SWIM
+#define SWIM_NUM 3
+#endif
+
 //添加节点信息的专用函数
 void MP1Node::savetoMemberlist(int id, short port, long timestamp = 0) {
     if(!timestamp) {
@@ -33,10 +38,13 @@ void MP1Node::savetoMemberlist(int id, short port, long timestamp = 0) {
         memcpy(&node_addr.addr[0], &id, sizeof(int));
         memcpy(&node_addr.addr[4], &port, sizeof(short));
         log->logNodeAdd(&memberNode->addr, &node_addr);
+        #ifdef SWIM
+        status.insert(make_pair(id,false));
+        #endif
     } 
 }
 
-#ifdef GOSSIP
+#if (!defined GOSSIP) || (!defined SWIM)
 //随机函数,生成值为1～num的乱序数组，num为memberList的总长度
 vector<int> MP1Node::randsend(int num) {
   std::vector<int> myvector;
@@ -266,7 +274,7 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
     MessageHdr *rev_type = (MessageHdr*)data;
     //获取源地址
     Address src_addr;
-    memcpy(&src_addr,(char*)(data+sizeof(MessageHdr)), sizeof(memberNode->addr.addr));
+    memcpy(&src_addr,(data+sizeof(MessageHdr)), sizeof(memberNode->addr.addr));
     int src_id = src_addr.addr[0];
     short src_port = src_addr.addr[4];
     //获取heartbeat
@@ -375,6 +383,86 @@ bool MP1Node::recvCallBack(void *env, char *data, int size ) {
             }
         }
     }
+    #ifdef SWIM
+    //收到了别人的帮忙请求
+    else if(HELP == rev_type->msgType) {
+        Address objective_addr;
+        memcpy(&objective_addr.addr, data + sizeof(MessageHdr) + sizeof(memberNode->addr.addr), sizeof(memberNode->addr.addr));
+        size_t msg_size = sizeof(MessageHdr) + 2*sizeof(memberNode->addr.addr);
+        char *msg_info = new char[msg_size];
+        MessageHdr info_type;
+        info_type.msgType = PLEASEGOHOME;
+        memcpy(msg_info, &info_type, sizeof(MessageHdr));
+        memcpy(msg_info + sizeof(MessageHdr), &memberNode->addr.addr, sizeof(memberNode->addr.addr));
+        memcpy(msg_info + sizeof(MessageHdr) + sizeof(memberNode->addr.addr), &src_addr, sizeof(memberNode->addr.addr));
+        emulNet->ENsend(&memberNode->addr, &objective_addr, (char*)msg_info, msg_size);
+    }
+    //收到了别人代发的消息，准备给中间人回复一下
+    else if(PLEASEGOHOME == rev_type->msgType) {
+        size_t msg_size = sizeof(MessageHdr) + 2 * sizeof(memberNode->addr.addr);
+        char *msg_info = new char[msg_size];
+        MessageHdr info_type;
+        info_type.msgType = IWILLGOHOME;
+        memcpy(msg_info, &info_type, sizeof(MessageHdr));
+        memcpy(msg_info + sizeof(MessageHdr), &memberNode->addr.addr, sizeof(memberNode->addr.addr));
+        memcpy(msg_info + sizeof(MessageHdr) + sizeof(memberNode->addr.addr), data + sizeof(MessageHdr) + sizeof(memberNode->addr.addr), \
+            sizeof(memberNode->addr.addr));
+        emulNet->ENsend(&memberNode->addr, &src_addr, (char*)msg_info, msg_size);
+    }
+    //代发节点收到了目标节点的回复，准备发送回去
+    else if(IWILLGOHOME == rev_type->msgType) {
+        size_t msg_size = sizeof(MessageHdr) + 2 * sizeof(memberNode->addr.addr);
+        char *msg_info = new char[msg_size];
+        MessageHdr info_type;
+        info_type.msgType = HEWILLGOHOME;
+        memcpy(msg_info, &info_type, sizeof(MessageHdr));
+        memcpy(msg_info + sizeof(MessageHdr), &memberNode->addr.addr, sizeof(memberNode->addr.addr));
+        memcpy(msg_info + sizeof(MessageHdr) + sizeof(memberNode->addr.addr), &src_addr ,sizeof(memberNode->addr.addr));
+        Address to_addr;
+        memcpy(&to_addr.addr, data + sizeof(MessageHdr) + sizeof(memberNode->addr.addr), sizeof(memberNode->addr.addr));
+        emulNet->ENsend(&memberNode->addr, &to_addr, (char*)msg_info, msg_size);
+    }
+    //收到了疑似down掉的节点间接发送回来的消息，更新一波
+    else if(HEWILLGOHOME == rev_type->msgType) {
+        Address objective_addr;
+        memcpy(&objective_addr.addr, data + sizeof(MessageHdr) + sizeof(memberNode->addr.addr), sizeof(memberNode->addr.addr));
+        int down_id = objective_addr.addr[0];
+        short down_port = objective_addr.addr[4];
+        for(vector<MemberListEntry>::iterator it2 = memberNode->memberList.begin()+1; it2 != memberNode->memberList.end(); it2++) {
+            if(down_id == it2->id && down_port == it2->port) {
+                it2->timestamp = par->getcurrtime();
+                for(auto it = status.begin(); it != status.end(); it++) {
+                    if(it->first == down_id) {
+                        it->second = true;
+                    }
+                }
+            }
+        }
+    }
+    //收到了SWIM协议的普通PING包
+    else if(SENDPING == rev_type->msgType) {
+        size_t msg_size = sizeof(MessageHdr) + sizeof(memberNode->addr.addr);
+        char *msg_info = new char[msg_size];
+        MessageHdr info_type;
+        info_type.msgType = RESPONSE;
+        memcpy(msg_info, &info_type, sizeof(MessageHdr));
+        memcpy(msg_info + sizeof(MessageHdr), &memberNode->addr.addr, sizeof(memberNode->addr.addr));
+        emulNet->ENsend(&memberNode->addr, &src_addr, (char*)msg_info, msg_size);
+    }
+    //收到了PING包节点正常回复的消息
+    else if(RESPONSE == rev_type->msgType) {
+        for(vector<MemberListEntry>::iterator it2 = memberNode->memberList.begin()+1; it2 != memberNode->memberList.end(); it2++) {
+            if(src_id == it2->id && src_port == it2->port) {
+                it2->timestamp = par->getcurrtime();
+                for(auto it = status.begin(); it != status.end(); it++) {
+                    if(it->first == src_id) {
+                        it->second = true;
+                    }
+                }
+            }
+        }
+    }
+    #endif
     #if(!defined GOSSIP) || (!defined RING)
     //DOWN, 收到有节点down掉的信息
     else if(DOWN == rev_type->msgType) {
@@ -427,6 +515,121 @@ void MP1Node::nodeLoopOps() {
     /*
      * Your code goes here
      */
+    
+    #ifdef SWIM
+    if(memberNode->memberList.size() == 1) {
+        return;
+    }
+    status.clear();
+    //随机选取一些节点发送ping包
+    if(memberNode->memberList.size()-1 > SWIM_NUM) {
+        vector<int> send_node = randsend(memberNode->memberList.size());
+        for(int i = 0; i < SWIM_NUM; i++) {
+            status.insert(make_pair(memberNode->memberList[send_node[i]].id, false));
+        }
+        for(int i = 0; i < SWIM_NUM; i++) {
+            int memberlist_size = memberNode->memberList.size();
+            size_t msg_size = sizeof(MessageHdr) + sizeof(memberNode->addr.addr);
+            char *msg = new char[msg_size];
+            MessageHdr msg_type;
+            msg_type.msgType = SENDPING;
+            memcpy(msg, &msg_type, sizeof(MessageHdr));
+            Address to_addr;
+            int t = send_node[i];
+            memcpy(&to_addr.addr[0], &memberNode->memberList[t].id, sizeof(int));
+            memcpy(&to_addr.addr[4],  &memberNode->memberList[t].port, sizeof(short));
+            memcpy(msg + sizeof(MessageHdr), &memberNode->addr.addr, sizeof(to_addr.addr));
+            emulNet->ENsend(&memberNode->addr, &to_addr, (char*)msg, msg_size);
+        }
+    }
+    //节点总数不够SWIM_NUM,采用ALL2ALL
+    else if(memberNode->memberList.size()-1 <= SWIM_NUM) {
+        int memberlist_size = memberNode->memberList.size();
+        for(int i = 1; i < memberlist_size; i++) {
+            status.insert(make_pair(memberNode->memberList[i].id, false));
+        }
+        for(int i = 1; i < memberlist_size; i++) {
+            size_t msg_size = sizeof(MessageHdr) + sizeof(memberNode->addr.addr);
+            char *msg = new char[msg_size];
+            MessageHdr msg_type;
+            msg_type.msgType = SENDPING;
+            memcpy(msg, &msg_type, sizeof(MessageHdr));
+            Address to_addr;
+            memcpy(&to_addr.addr[0], &memberNode->memberList[i].id, sizeof(int));
+            memcpy(&to_addr.addr[4],  &memberNode->memberList[i].port, sizeof(short));
+            memcpy(msg + sizeof(MessageHdr), &memberNode->addr.addr, sizeof(to_addr.addr));
+            emulNet->ENsend(&memberNode->addr, &to_addr, (char*)msg, msg_size);
+        }
+    }
+    //如果没收到回复，随机选取部分节点请求别人帮忙
+    for(auto it = status.begin(); it != status.end(); it++) {
+        if(it->second == false) {
+            int memberlist_size = memberNode->memberList.size();
+            vector<int> send_node = randsend(memberNode->memberList.size());
+            //节点总数多余SWIM_NUM
+            if(memberNode->memberList.size()-1 > SWIM_NUM) {
+                for(int i = 0; i < SWIM_NUM; i++) {
+                    size_t msg_size = sizeof(MessageHdr) + 2*sizeof(memberNode->addr.addr);
+                    char *msg = new char[msg_size];
+                    MessageHdr msg_type;
+                    msg_type.msgType = HELP;
+                    memcpy(msg, &msg_type, sizeof(MessageHdr));
+                    Address to_addr;
+                    int t = send_node[i];
+                    memcpy(&to_addr.addr[0], &memberNode->memberList[t].id, sizeof(int));
+                    memcpy(&to_addr.addr[4],  &memberNode->memberList[t].port, sizeof(short));
+                    memcpy(msg + sizeof(MessageHdr), &memberNode->addr.addr, sizeof(to_addr.addr));
+                    Address it_addr;
+                    memcpy(&it_addr.addr[0], &it->first, sizeof(int));
+                    short a = 0;
+                    memcpy(&it_addr.addr[4],  &a, sizeof(short));
+                    memcpy(msg + sizeof(MessageHdr) + sizeof(memberNode->addr.addr), &it_addr.addr, sizeof(memberNode->addr.addr));
+                    emulNet->ENsend(&memberNode->addr, &to_addr, (char*)msg, msg_size);
+                }
+            } 
+            //节点总数不多于SWIM_NUM      
+            else {
+                int memberlist_size = memberNode->memberList.size();
+                for(int i = 1; i < memberlist_size; i++) {
+                    size_t msg_size = sizeof(MessageHdr) + 2 * sizeof(memberNode->addr.addr);
+                    char *msg = new char[msg_size];
+                    MessageHdr msg_type;
+                    msg_type.msgType = HELP;
+                    memcpy(msg, &msg_type, sizeof(MessageHdr));
+                    Address to_addr;
+                    memcpy(&to_addr.addr[0], &memberNode->memberList[i].id, sizeof(int));
+                    memcpy(&to_addr.addr[4],  &memberNode->memberList[i].port, sizeof(short));
+                    memcpy(msg + sizeof(MessageHdr), &memberNode->addr.addr, sizeof(to_addr.addr));
+                    Address it_addr;
+                    memcpy(&it_addr.addr[0], &it->first, sizeof(int));
+                    short a = 0;
+                    memcpy(&it_addr.addr[4],  &a, sizeof(short));
+                    memcpy(msg + sizeof(MessageHdr) + sizeof(memberNode->addr.addr), &it_addr.addr, sizeof(memberNode->addr.addr));
+                    emulNet->ENsend(&memberNode->addr, &to_addr, (char*)msg, msg_size);
+                }
+            }
+        }
+    }
+    //最后再核查,如果还是为false就判定掉线
+    for(auto it = status.begin();it != status.end(); it++) {
+        if(it->second == false ) {
+            Address node_addr;
+            memcpy(&node_addr.addr[0], &it->first, sizeof(int));
+            short a = 0;
+            memcpy(&node_addr.addr[4], &a, sizeof(short));
+            for(vector<MemberListEntry>::iterator it2 = memberNode->memberList.end() -1; it2 != memberNode->memberList.begin(); it2--) {
+                //加上par->getcurrtime() - it2->timestamp > TREMOVE是担心判断频率过快带来不稳定
+                if(it->first == it2->id && par->getcurrtime() - it2->timestamp > TREMOVE) {
+                    memberNode->memberList.erase(it2);
+                    log->logNodeRemove(&memberNode->addr, &node_addr);
+                    continue;
+                }
+            }
+        }
+    }
+    return;
+    #endif
+
     //检查其余节点有没有谁挂掉了
     for(vector<MemberListEntry>::iterator it = memberNode->memberList.end() -1; \
         it != memberNode->memberList.begin(); it--) {

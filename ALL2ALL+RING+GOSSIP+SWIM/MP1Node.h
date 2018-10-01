@@ -14,7 +14,7 @@
 **/
 //#define GOSSIP
 //#define RING
-//#define SWIM
+#define SWIM
 
 #include "stdincludes.h"
 #include "Log.h"
